@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>cc-shift — AI Shift Schedule</title>
+  <style>
+    :root {
+      --bg: #0d1117; --surface: #161b22; --surface2: #21262d;
+      --border: #30363d; --text: #e6edf3; --muted: #8b949e;
+      --cyan: #58d8f0; --green: #3fb950; --orange: #f0883e;
+      --blue: #58a6ff; --yellow: #d29922; --purple: #d2a8ff;
+      --red: #f85149;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: ui-monospace,monospace; font-size: 13px; line-height: 1.5; min-height: 100vh; }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 20px; display: flex; align-items: center; gap: 12px; }
+    header h1 { font-size: 16px; }
+    header .badge { background: var(--cyan); color: #000; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+    .main { padding: 20px; max-width: 1000px; margin: 0 auto; }
+    .drop-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 40px; text-align: center; cursor: pointer; transition: border-color .2s,background .2s; margin-bottom: 20px; }
+    .drop-zone:hover,.drop-zone.drag-over { border-color: var(--cyan); background: rgba(88,216,240,.05); }
+    .drop-zone input { display: none; }
+    .drop-zone h2 { font-size: 15px; margin-bottom: 8px; }
+    .drop-zone p { color: var(--muted); font-size: 12px; }
+    .drop-zone .icon { font-size: 32px; margin-bottom: 12px; }
+    #output { display: none; }
+    .controls { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+    .date-nav { display: flex; align-items: center; gap: 6px; }
+    .nav-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; }
+    .nav-btn:hover { border-color: var(--cyan); }
+    .date-select { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 10px; border-radius: 4px; font-family: inherit; font-size: 13px; }
+    .clear-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; margin-left: auto; }
+    .summary { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; display: flex; gap: 24px; flex-wrap: wrap; }
+    .summary .stat .val { font-size: 18px; font-weight: 700; color: var(--cyan); }
+    .summary .stat .lbl { font-size: 11px; color: var(--muted); }
+    /* Timeline chart */
+    .chart-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px 20px; margin-bottom: 20px; overflow-x: auto; }
+    .time-header { display: flex; align-items: center; margin-bottom: 8px; }
+    .row-label-col { width: 140px; flex-shrink: 0; color: var(--muted); font-size: 11px; padding-right: 8px; }
+    .timeline-col { flex: 1; min-width: 480px; position: relative; }
+    .hour-labels { display: flex; font-size: 10px; color: var(--muted); }
+    .hour-label { flex: 1; text-align: left; }
+    .project-row { display: flex; align-items: center; margin-bottom: 6px; }
+    .proj-name { width: 140px; flex-shrink: 0; color: var(--text); font-size: 12px; padding-right: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .proj-name.all-label { color: var(--muted); border-top: 1px solid var(--border); padding-top: 6px; margin-top: 2px; }
+    .timeline-bar { flex: 1; min-width: 480px; height: 18px; background: var(--surface2); border-radius: 2px; position: relative; overflow: hidden; }
+    .timeline-bar.all-bar { height: 20px; border-radius: 3px; margin-top: 4px; }
+    .seg { position: absolute; top: 0; height: 100%; border-radius: 1px; opacity: .85; }
+    .sep-row { display: flex; margin-bottom: 8px; }
+    .sep-line { width: 140px; flex-shrink: 0; }
+    .sep-line-bar { flex: 1; height: 1px; background: var(--border); margin-top: 9px; }
+    /* Project colors — 8 palette */
+    .c0 { background: var(--cyan); }
+    .c1 { background: var(--green); }
+    .c2 { background: var(--orange); }
+    .c3 { background: var(--purple); }
+    .c4 { background: var(--blue); }
+    .c5 { background: var(--yellow); }
+    .c6 { background: var(--red); }
+    .c7 { background: #e3b341; }
+    .ghost-banner { background: rgba(248,81,73,.1); border: 1px solid rgba(248,81,73,.3); border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; color: var(--red); }
+    .no-sessions { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 24px; text-align: center; color: var(--muted); }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+    .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text); }
+    .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+    .tooltip { position: absolute; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 11px; pointer-events: none; z-index: 100; white-space: nowrap; display: none; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>⏰ cc-shift</h1>
+  <span class="badge">AI Shift</span>
+</header>
+<div class="main">
+  <div class="drop-zone" id="dropZone">
+    <input type="file" id="fileInput" webkitdirectory multiple accept=".md">
+    <div class="icon">📂</div>
+    <h2>Select your proof-log folder</h2>
+    <p>Click to select the folder — usually at <code>~/ops/proof-log/</code><br>
+    Contains <code>YYYY-MM-DD.md</code> files with your AI session records.<br>
+    Processed entirely in your browser. Nothing is uploaded.</p>
+  </div>
+
+  <div id="output">
+    <div class="controls">
+      <div class="date-nav">
+        <button class="nav-btn" id="prevDay">◀</button>
+        <select class="date-select" id="dateSelect"></select>
+        <button class="nav-btn" id="nextDay">▶</button>
+      </div>
+      <button class="clear-btn" id="clearBtn">✕ Clear</button>
+    </div>
+
+    <div class="summary" id="summary"></div>
+    <div id="ghostBanner" class="ghost-banner" style="display:none">👻 Ghost Day — AI worked while you were offline.</div>
+    <div id="legendWrap" class="legend"></div>
+    <div class="chart-wrap" id="chartWrap">
+      <div id="noSessions" class="no-sessions" style="display:none">No session data for this date.</div>
+      <div id="chart"></div>
+    </div>
+    <div class="tooltip" id="tooltip"></div>
+  </div>
+</div>
+
+<script>
+// Parse proof-log markdown
+function parseProofLog(content) {
+  const SESSION_HDR = /^###\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})-(\d{2}:\d{2})\s+JST/;
+  const WHERE_LINE  = /^-\s+どこで:\s+(.+)$/;
+  const WHO_LINE    = /^-\s+誰が:\s+(.+)$/;
+
+  const sessions = [];
+  let cur = null;
+
+  for (const raw of content.split('\n')) {
+    const line = raw.trim();
+    const hdr = SESSION_HDR.exec(line);
+    if (hdr) {
+      if (cur && cur.project) sessions.push(cur);
+      const sm = toMin(hdr[2]), em = toMin(hdr[3]);
+      cur = {
+        date: hdr[1],
+        startMin: sm,
+        endMin: em < sm ? em + 1440 : em,  // midnight crossover
+        project: null,
+        isCC: true
+      };
+      if (cur.endMin === cur.startMin) cur.endMin = cur.startMin + 1;
+      continue;
+    }
+    if (!cur) continue;
+    const wh = WHERE_LINE.exec(line);
+    if (wh) { cur.project = wh[1].trim(); continue; }
+    const who = WHO_LINE.exec(line);
+    if (who) { cur.isCC = who[1].includes('CC'); continue; }
+  }
+  if (cur && cur.project) sessions.push(cur);
+  return sessions;
+}
+
+function toMin(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function fmtMin(m) {
+  const h = Math.floor(m / 60) % 24, mm = m % 60;
+  return `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+}
+
+// All sessions keyed by date
+let byDate = {};
+let dates = [];
+let currentDateIdx = 0;
+
+const COLORS = ['c0','c1','c2','c3','c4','c5','c6','c7'];
+
+function loadFiles(files) {
+  byDate = {};
+  for (const f of files) {
+    const m = f.name.match(/^(\d{4}-\d{2}-\d{2})\.md$/);
+    if (!m) continue;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const sessions = parseProofLog(e.target.result);
+      if (sessions.length > 0) {
+        byDate[m[1]] = sessions;
+      } else {
+        byDate[m[1]] = [];  // Ghost Day candidate
+      }
+      finalize();
+    };
+    reader.readAsText(f);
+  }
+}
+
+let pendingCount = 0;
+function finalize() {
+  dates = Object.keys(byDate).sort().reverse();
+  if (dates.length === 0) return;
+  const sel = document.getElementById('dateSelect');
+  sel.innerHTML = dates.map(d => `<option value="${d}">${d} (${dayName(d)})</option>`).join('');
+  currentDateIdx = 0;
+  document.getElementById('dropZone').style.display = 'none';
+  document.getElementById('output').style.display = 'block';
+  renderDate(dates[0]);
+}
+
+function dayName(d) {
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  return days[new Date(d + 'T12:00:00Z').getDay()];
+}
+
+function renderDate(date) {
+  const sessions = byDate[date] || [];
+  const COLS = 96; // 96 quarter-hours = 24h
+  const MINSPCOL = 1440 / COLS;
+
+  // Build project map
+  const projects = [...new Set(sessions.map(s => s.project))].sort();
+  const colorMap = {};
+  projects.forEach((p,i) => colorMap[p] = COLORS[i % COLORS.length]);
+
+  // Compute stats
+  let totalMins = 0;
+  const covered = new Uint8Array(COLS);
+  for (const s of sessions) {
+    const sm = Math.min(s.startMin, 1439);
+    const em = Math.min(s.endMin, 1440);
+    totalMins += em - sm;
+    for (let c = Math.floor(sm/MINSPCOL); c < Math.ceil(em/MINSPCOL) && c < COLS; c++) {
+      covered[c] = 1;
+    }
+  }
+  const activeCols = covered.reduce((a,b) => a+b, 0);
+  const firstActive = covered.findIndex(v => v) * MINSPCOL;
+  const lastActive = (covered.lastIndexOf(1) + 1) * MINSPCOL;
+
+  // Summary
+  const h = Math.floor(totalMins/60), m = totalMins%60;
+  const dur = h > 0 ? `${h}h ${m}m` : `${m}m`;
+  document.getElementById('summary').innerHTML = `
+    <div class="stat"><div class="val">${dur}</div><div class="lbl">active time</div></div>
+    <div class="stat"><div class="val">${sessions.length}</div><div class="lbl">sessions</div></div>
+    <div class="stat"><div class="val">${projects.length}</div><div class="lbl">projects</div></div>
+    ${totalMins > 0 ? `<div class="stat"><div class="val">${fmtMin(firstActive)}–${fmtMin(lastActive)}</div><div class="lbl">active range</div></div>` : ''}
+  `;
+
+  // Ghost day? (no session data)
+  document.getElementById('ghostBanner').style.display = sessions.length === 0 ? 'block' : 'none';
+
+  // Legend
+  document.getElementById('legendWrap').innerHTML = projects.map(p =>
+    `<div class="legend-item"><div class="legend-dot ${colorMap[p]}"></div>${escHtml(p)}</div>`
+  ).join('');
+
+  // Chart
+  const chart = document.getElementById('chart');
+  chart.innerHTML = '';
+
+  if (sessions.length === 0) {
+    document.getElementById('noSessions').style.display = 'block';
+    return;
+  }
+  document.getElementById('noSessions').style.display = 'none';
+
+  // Hour labels row
+  const hdrRow = document.createElement('div');
+  hdrRow.className = 'time-header';
+  hdrRow.innerHTML = `<div class="row-label-col"></div><div class="timeline-col"><div class="hour-labels">${
+    [0,6,12,18,24].map(h => `<div class="hour-label" style="flex:${h===24?0:1}">${String(h%24).padStart(2,'0')}:00</div>`).join('')
+  }</div></div>`;
+  chart.appendChild(hdrRow);
+
+  // Project rows
+  for (const proj of projects) {
+    const row = document.createElement('div');
+    row.className = 'project-row';
+    const projSessions = sessions.filter(s => s.project === proj);
+    const segs = buildSegs(projSessions, COLS, MINSPCOL);
+    const color = colorMap[proj];
+    row.innerHTML = `
+      <div class="proj-name" title="${escHtml(proj)}">${escHtml(proj)}</div>
+      <div class="timeline-bar" id="bar-${escId(proj)}">
+        ${segs.map(s => `<div class="seg ${color}" style="left:${s.left}%;width:${s.width}%" title="${s.title}" data-title="${escHtml(s.title)}"></div>`).join('')}
+      </div>
+    `;
+    chart.appendChild(row);
+  }
+
+  // Separator
+  const sep = document.createElement('div');
+  sep.className = 'sep-row';
+  sep.innerHTML = `<div class="sep-line"></div><div class="sep-line-bar"></div>`;
+  chart.appendChild(sep);
+
+  // ALL row
+  const allRow = document.createElement('div');
+  allRow.className = 'project-row';
+  const allSegs = buildCombinedSegs(sessions, COLS, MINSPCOL);
+  allRow.innerHTML = `
+    <div class="proj-name all-label">ALL</div>
+    <div class="timeline-bar all-bar">
+      ${allSegs.map(s => `<div class="seg c0" style="left:${s.left}%;width:${s.width}%;opacity:.5" title="${s.title}"></div>`).join('')}
+    </div>
+  `;
+  chart.appendChild(allRow);
+
+  // Tooltip events
+  chart.querySelectorAll('.seg').forEach(seg => {
+    seg.addEventListener('mouseenter', e => {
+      const tip = document.getElementById('tooltip');
+      tip.textContent = seg.dataset.title;
+      tip.style.display = 'block';
+      tip.style.left = (e.clientX + 12) + 'px';
+      tip.style.top = (e.clientY - 20) + 'px';
+    });
+    seg.addEventListener('mousemove', e => {
+      const tip = document.getElementById('tooltip');
+      tip.style.left = (e.clientX + 12) + 'px';
+      tip.style.top = (e.clientY - 20) + 'px';
+    });
+    seg.addEventListener('mouseleave', () => {
+      document.getElementById('tooltip').style.display = 'none';
+    });
+  });
+}
+
+function buildSegs(sessions, cols, minsPerCol) {
+  const segs = [];
+  for (const s of sessions) {
+    const l = s.startMin / 1440 * 100;
+    const w = (s.endMin - s.startMin) / 1440 * 100;
+    const dur = s.endMin - s.startMin;
+    segs.push({ left: l, width: Math.max(w, 0.3), title: `${fmtMin(s.startMin)}–${fmtMin(s.endMin)} (${dur}m) ${s.project}` });
+  }
+  return segs;
+}
+
+function buildCombinedSegs(sessions, cols, minsPerCol) {
+  // Merge overlapping segments for ALL row
+  if (sessions.length === 0) return [];
+  const intervals = sessions.map(s => [s.startMin, s.endMin]).sort((a,b) => a[0]-b[0]);
+  const merged = [intervals[0].slice()];
+  for (const [s,e] of intervals.slice(1)) {
+    const last = merged[merged.length-1];
+    if (s <= last[1]) last[1] = Math.max(last[1], e);
+    else merged.push([s,e]);
+  }
+  return merged.map(([s,e]) => ({
+    left: s/1440*100, width: Math.max((e-s)/1440*100, 0.3),
+    title: `${fmtMin(s)}–${fmtMin(e)} (${e-s}m)`
+  }));
+}
+
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escId(s) { return s.replace(/[^a-zA-Z0-9]/g,'-'); }
+
+// File input
+const dz = document.getElementById('dropZone');
+const fi = document.getElementById('fileInput');
+dz.addEventListener('click', () => fi.click());
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag-over');
+  loadFiles([...e.dataTransfer.files]);
+});
+fi.addEventListener('change', () => fi.files.length && loadFiles([...fi.files]));
+
+// Date navigation
+document.getElementById('dateSelect').addEventListener('change', e => {
+  currentDateIdx = dates.indexOf(e.target.value);
+  renderDate(e.target.value);
+});
+document.getElementById('prevDay').addEventListener('click', () => {
+  if (currentDateIdx < dates.length - 1) {
+    currentDateIdx++;
+    document.getElementById('dateSelect').value = dates[currentDateIdx];
+    renderDate(dates[currentDateIdx]);
+  }
+});
+document.getElementById('nextDay').addEventListener('click', () => {
+  if (currentDateIdx > 0) {
+    currentDateIdx--;
+    document.getElementById('dateSelect').value = dates[currentDateIdx];
+    renderDate(dates[currentDateIdx]);
+  }
+});
+document.getElementById('clearBtn').addEventListener('click', () => {
+  byDate = {}; dates = []; currentDateIdx = 0;
+  document.getElementById('dropZone').style.display = 'block';
+  document.getElementById('output').style.display = 'none';
+});
+</script>
+</body>
+</html>
